@@ -16,6 +16,11 @@ interface TestOptions {
   // Function to get extra data to include in the snapshot
   getExtraSnapshotData?: (dirPath: string) => Promise<{ [key: string]: string }>;
 
+  /**
+   * Override the `files` directory within the fixture to lint.
+   * This is useful when the fixture has a different structure, e.g. when testing nested configs.
+   * Defaults to `files`.
+   */
   overrideFiles?: string;
 }
 
