@@ -301,11 +301,11 @@ pub fn can_avoid_parentheses(
         && !f.comments().has_comment_in_span(arrow.params.span)
 }
 
-pub fn should_hug_function_parameters<'a>(
-    parameters: &AstNode<'a, FormalParameters<'a>>,
-    this_param: Option<&AstNode<'a, TSThisParameter<'a>>>,
+pub fn should_hug_function_parameters(
+    parameters: &AstNode<'_, FormalParameters<'_>>,
+    this_param: Option<&AstNode<'_, TSThisParameter<'_>>>,
     parentheses_not_needed: bool,
-    f: &Formatter<'_, 'a>,
+    f: &Formatter<'_, '_>,
 ) -> bool {
     let list = &parameters.items();
 

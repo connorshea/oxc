@@ -9,6 +9,7 @@ use crate::{
         trivia::{DanglingIndentMode, format_dangling_comments},
     },
     write,
+    write::parameters::{get_this_param, should_hug_function_parameters},
 };
 
 use super::{
@@ -44,6 +45,19 @@ impl GetSpan for ObjectPatternLike<'_, '_> {
 }
 
 impl<'a> ObjectPatternLike<'a, '_> {
+    fn is_hug_parameter(
+        &self,
+        node: &AstNode<'a, ObjectPattern<'a>>,
+        f: &Formatter<'_, 'a>,
+    ) -> bool {
+        matches!(node.grand_parent(), AstNodes::FormalParameter(param) if {
+            matches!(param.parent, AstNodes::FormalParameters(params) if {
+                let this_param = get_this_param(params.parent);
+                should_hug_function_parameters(params, this_param, false, f)
+            })
+        })
+    }
+
     fn is_empty(&self) -> bool {
         match self {
             Self::ObjectPattern(o) => o.is_empty(),
@@ -53,13 +67,10 @@ impl<'a> ObjectPatternLike<'a, '_> {
 
     fn is_inline(&self, f: &Formatter<'_, 'a>) -> bool {
         match self {
-            Self::ObjectPattern(node) => match node.parent {
-                AstNodes::FormalParameter(_) => true,
-                AstNodes::AssignmentPattern(_) => {
-                    matches!(node.parent.parent(), AstNodes::FormalParameter(_))
-                }
-                _ => false,
-            },
+            Self::ObjectPattern(node) => {
+                matches!(node.parent, AstNodes::FormalParameter(_))
+                    || self.is_hug_parameter(node, f)
+            }
             Self::ObjectAssignmentTarget(node) => false,
         }
     }
