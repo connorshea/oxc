@@ -17,6 +17,13 @@ export function useCopyToClipboard({ timeout = 2000, onCopy }: {
   onCopy?: () => void;
 } = {}) {}
 
+function callbackUrl(
+  { baseUrl, params }: { baseUrl: string; params?: string } = {
+    baseUrl: "",
+    params: undefined,
+  }
+) { }
+
 ==================== Output ====================
 (
   options,
@@ -38,5 +45,12 @@ export function useCopyToClipboard({
   timeout?: number;
   onCopy?: () => void;
 } = {}) {}
+
+function callbackUrl(
+  { baseUrl, params }: { baseUrl: string; params?: string } = {
+    baseUrl: "",
+    params: undefined,
+  },
+) {}
 
 ===================== End =====================
