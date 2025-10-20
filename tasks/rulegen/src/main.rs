@@ -374,6 +374,7 @@ pub struct Context {
     language: Cow<'static, str>,
     rule_config: Option<String>,
     rule_config_tuple: Option<String>,
+    rule_config_names: Vec<FxHashMap<String, String>>,
     has_hash_map: bool,
     has_hash_set: bool,
 }
@@ -397,6 +398,7 @@ impl Context {
             language: Cow::Borrowed("js"),
             rule_config: None,
             rule_config_tuple: None,
+            rule_config_names: Vec::new(),
             has_hash_map: false,
             has_hash_set: false,
         }
@@ -421,11 +423,13 @@ impl Context {
         mut self,
         rule_config: String,
         rule_config_tuple: String,
+        rule_config_names: Vec<FxHashMap<String, String>>,
         has_hash_map: bool,
         has_hash_set: bool,
     ) -> Self {
         self.rule_config = Some(rule_config);
         self.rule_config_tuple = Some(rule_config_tuple);
+        self.rule_config_names = rule_config_names;
         self.has_hash_map = has_hash_map;
         self.has_hash_set = has_hash_set;
         self
@@ -885,6 +889,28 @@ impl RuleConfigOutput {
                 None
             }
         }
+    }
+}
+
+/// Extracts field names from a RuleConfigElement
+fn extract_field_names(element: &RuleConfigElement) -> FxHashMap<String, String> {
+    match element {
+        RuleConfigElement::Object(hash_map) => {
+            hash_map.keys().map(|k| (k.clone(), k.clone())).collect()
+        }
+        RuleConfigElement::Enum(elements) => {
+            // For enums, we need to extract field names from all object variants
+            let mut all_fields = FxHashMap::default();
+            for elem in elements {
+                if let RuleConfigElement::Object(hash_map) = elem {
+                    for key in hash_map.keys() {
+                        all_fields.insert(key.clone(), key.clone());
+                    }
+                }
+            }
+            all_fields
+        }
+        _ => FxHashMap::default(),
     }
 }
 
@@ -1571,9 +1597,15 @@ fn main() {
             }
             if !config_names.is_empty() && !rule_config_output.has_errors {
                 let rule_config_tuple = format!("({})", config_names.join(", "));
+                let field_names =
+                    config.elements.iter().map(extract_field_names).collect::<Vec<_>>();
+                if debug_mode {
+                    println!("Extracted field names: {field_names:?}");
+                }
                 context = context.with_rule_config(
                     rule_config_output.output,
                     rule_config_tuple,
+                    field_names,
                     rule_config_output.has_hash_map,
                     rule_config_output.has_hash_set,
                 );

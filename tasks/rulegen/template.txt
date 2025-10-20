@@ -55,8 +55,10 @@ declare_oxc_lint!(
 {{#if rule_config}}
     ///
     /// ### Options
+{{#each rule_config_names}}
+{{#each this}}
     ///
-    /// #### optionName
+    /// #### {{@key}}
     ///
     /// `{ type: FIXME, default: FIXME }`
     ///
@@ -65,12 +67,14 @@ declare_oxc_lint!(
     /// Example:
     /// ```json
     /// {
-    ///   "{{mod_name}}/{{kebab_rule_name}}": [
+    ///   "{{../../mod_name}}/{{../../kebab_rule_name}}": [
     ///     "error",
-    ///     { "optionName": "FIXME: example option value" }
+    ///     { "{{@key}}": "FIXME: example option value" }
     ///   ]
     /// }
     /// ```
+{{/each}}
+{{/each}}
 {{/if}}
     {{pascal_rule_name}},
     {{mod_name}},
