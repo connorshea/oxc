@@ -2,6 +2,7 @@ use oxc_ast::AstKind;
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_macros::declare_oxc_lint;
 use oxc_span::{GetSpan, Span};
+use schemars::JsonSchema;
 
 use crate::{
     AstNode,
@@ -18,8 +19,10 @@ fn expected_es6_class_diagnostic(span: Span) -> OxcDiagnostic {
     OxcDiagnostic::warn("Components should use ES6 class instead of createClass.").with_label(span)
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, JsonSchema)]
+#[serde(rename_all = "camelCase", default)]
 pub struct PreferEs6Class {
+    /// Configure which style of React component definition to enforce.
     prefer_es6_class_option: PreferES6ClassOptionType,
 }
 
@@ -46,6 +49,7 @@ declare_oxc_lint!(
     PreferEs6Class,
     react,
     style,
+    config = PreferEs6Class
 );
 
 impl Rule for PreferEs6Class {
@@ -85,7 +89,8 @@ impl Rule for PreferEs6Class {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, JsonSchema)]
+#[serde(rename_all = "lowercase")]
 enum PreferES6ClassOptionType {
     #[default]
     Always,
