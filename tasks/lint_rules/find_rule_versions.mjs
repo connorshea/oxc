@@ -5,10 +5,10 @@
  * rule, based on when its source file was added to the repository.
  *
  * Requirements:
- *   Full git history — run `git fetch --unshallow --tags` if needed.
+ *   Full git history — run `git fetch --tags` if needed.
  *
  * Usage:
- *   node tasks/lint_rules/find_rule_versions.mjs [--json] [--output <file>]
+ *   node tasks/lint_rules/find_rule_versions.mjs [--json] [--output=<file>]
  */
 
 import { execFile } from "node:child_process";
@@ -150,8 +150,8 @@ async function checkGitState() {
   if (count === 0) {
     console.error(
       "ERROR: No oxlint_v* or apps_v* tags found locally.\n" +
-        "Run: git fetch --unshallow --tags\n" +
-        "to fetch the full history and all release tags.",
+      "Run: git fetch --unshallow --tags\n" +
+      "to fetch the full history and all release tags.",
     );
     process.exit(1);
   }
