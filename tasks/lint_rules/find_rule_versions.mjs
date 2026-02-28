@@ -150,7 +150,7 @@ async function checkGitState() {
   if (count === 0) {
     console.error(
       "ERROR: No oxlint_v* or apps_v* tags found locally.\n" +
-      "Run: git fetch --unshallow --tags\n" +
+      "Run: git fetch --tags\n" +
       "to fetch the full history and all release tags.",
     );
     process.exit(1);
