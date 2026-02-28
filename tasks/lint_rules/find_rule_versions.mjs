@@ -107,22 +107,29 @@ async function getIntroductionCommit(filePath) {
 }
 
 /**
- * Return the earliest oxlint_v* tag that contains the given commit.
+ * Return the earliest oxlint release tag that contains the given commit.
+ *
+ * Handles both historical tag formats:
+ *   oxlint_v*  — used up to and including oxlint v1.x
+ *   apps_v*    — introduced in later releases
+ *
+ * Both sets are fetched, merged, sorted by version, and the earliest is returned.
  *
  * @param {string} commit
  * @returns {Promise<string|null>}
  */
 async function getFirstOxlintVersion(commit) {
-  const output = await git(
-    'tag',
-    '--contains',
-    commit,
-    '--list',
-    'oxlint_v*',
-    '--sort=version:refname',
-  );
-  const tags = output.split('\n').filter(Boolean);
-  return tags[0] ?? null;
+  const [oxlintOut, appsOut] = await Promise.all([
+    git('tag', '--contains', commit, '--list', 'oxlint_v*', '--sort=version:refname'),
+    git('tag', '--contains', commit, '--list', 'apps_v*', '--sort=version:refname'),
+  ]);
+  const tags = [
+    ...oxlintOut.split('\n').filter(Boolean),
+    ...appsOut.split('\n').filter(Boolean),
+  ];
+  if (tags.length === 0) return null;
+  tags.sort((a, b) => compareVersionKeys(versionSortKey(a), versionSortKey(b)));
+  return tags[0];
 }
 
 /**
@@ -133,7 +140,7 @@ async function getFirstOxlintVersion(commit) {
  */
 function versionSortKey(version) {
   if (!version) return [Infinity, Infinity, Infinity];
-  const m = version.match(/oxlint_v(\d+)\.(\d+)\.(\d+)/);
+  const m = version.match(/(?:oxlint_v|apps_v)(\d+)\.(\d+)\.(\d+)/);
   if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
   return [Infinity, Infinity, Infinity];
 }
@@ -144,18 +151,22 @@ function compareVersionKeys(a, b) {
 }
 
 async function checkGitState() {
-  const tags = (await git('tag', '--list', 'oxlint_v*'))
-    .split('\n')
-    .filter(Boolean);
-  if (tags.length === 0) {
+  const [oxlintTags, appsTags] = await Promise.all([
+    git('tag', '--list', 'oxlint_v*'),
+    git('tag', '--list', 'apps_v*'),
+  ]);
+  const count =
+    oxlintTags.split('\n').filter(Boolean).length +
+    appsTags.split('\n').filter(Boolean).length;
+  if (count === 0) {
     console.error(
-      'ERROR: No oxlint_v* tags found locally.\n' +
+      'ERROR: No oxlint_v* or apps_v* tags found locally.\n' +
         'Run: git fetch --unshallow --tags\n' +
         'to fetch the full history and all release tags.',
     );
     process.exit(1);
   }
-  console.error(`Found ${tags.length} oxlint release tags.`);
+  console.error(`Found ${count} oxlint release tags.`);
 }
 
 async function main() {
