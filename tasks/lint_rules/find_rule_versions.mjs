@@ -11,21 +11,21 @@
  *   node tasks/lint_rules/find_rule_versions.mjs [--json] [--output <file>]
  */
 
-import { execFile } from 'node:child_process';
-import { writeFile, readdir, stat } from 'node:fs/promises';
-import { join, relative, dirname } from 'node:path';
-import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
+import { execFile } from "node:child_process";
+import { writeFile, readdir, stat } from "node:fs/promises";
+import { join, relative, dirname } from "node:path";
+import { parseArgs } from "node:util";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-const REPO_ROOT = join(fileURLToPath(import.meta.url), '../../..');
-const RULES_DIR = join(REPO_ROOT, 'crates/oxc_linter/src/rules');
+const REPO_ROOT = join(fileURLToPath(import.meta.url), "../../..");
+const RULES_DIR = join(REPO_ROOT, "crates/oxc_linter/src/rules");
 
 /** Run a git command and return trimmed stdout. */
 async function git(...args) {
-  const { stdout } = await execFileAsync('git', args, { cwd: REPO_ROOT });
+  const { stdout } = await execFileAsync("git", args, { cwd: REPO_ROOT });
   return stdout.trim();
 }
 
@@ -55,9 +55,9 @@ async function getRuleFiles() {
       const entryPath = join(pluginPath, entry);
       const entryStat = await stat(entryPath);
 
-      if (entryStat.isFile() && entry.endsWith('.rs') && entry !== 'mod.rs') {
+      if (entryStat.isFile() && entry.endsWith(".rs") && entry !== "mod.rs") {
         // Plain rule file: <plugin>/<rule>.rs
-        const rule = entry.slice(0, -3).replaceAll('_', '-');
+        const rule = entry.slice(0, -3).replaceAll("_", "-");
         rules.push({
           plugin,
           rule,
@@ -66,10 +66,10 @@ async function getRuleFiles() {
         });
       } else if (entryStat.isDirectory()) {
         // Directory-based rule: <plugin>/<rule>/mod.rs
-        const modFile = join(entryPath, 'mod.rs');
+        const modFile = join(entryPath, "mod.rs");
         try {
           await stat(modFile);
-          const rule = entry.replaceAll('_', '-');
+          const rule = entry.replaceAll("_", "-");
           rules.push({
             plugin,
             rule,
@@ -93,15 +93,8 @@ async function getRuleFiles() {
  * @returns {Promise<string|null>}
  */
 async function getIntroductionCommit(filePath) {
-  const output = await git(
-    'log',
-    '--diff-filter=A',
-    '--follow',
-    '--format=%H',
-    '--',
-    filePath,
-  );
-  const commits = output.split('\n').filter(Boolean);
+  const output = await git("log", "--diff-filter=A", "--follow", "--format=%H", "--", filePath);
+  const commits = output.split("\n").filter(Boolean);
   // git log is newest-first; the last entry is the original add
   return commits.at(-1) ?? null;
 }
@@ -120,13 +113,10 @@ async function getIntroductionCommit(filePath) {
  */
 async function getFirstOxlintVersion(commit) {
   const [oxlintOut, appsOut] = await Promise.all([
-    git('tag', '--contains', commit, '--list', 'oxlint_v*', '--sort=version:refname'),
-    git('tag', '--contains', commit, '--list', 'apps_v*', '--sort=version:refname'),
+    git("tag", "--contains", commit, "--list", "oxlint_v*", "--sort=version:refname"),
+    git("tag", "--contains", commit, "--list", "apps_v*", "--sort=version:refname"),
   ]);
-  const tags = [
-    ...oxlintOut.split('\n').filter(Boolean),
-    ...appsOut.split('\n').filter(Boolean),
-  ];
+  const tags = [...oxlintOut.split("\n").filter(Boolean), ...appsOut.split("\n").filter(Boolean)];
   if (tags.length === 0) return null;
   tags.sort((a, b) => compareVersionKeys(versionSortKey(a), versionSortKey(b)));
   return tags[0];
@@ -152,17 +142,16 @@ function compareVersionKeys(a, b) {
 
 async function checkGitState() {
   const [oxlintTags, appsTags] = await Promise.all([
-    git('tag', '--list', 'oxlint_v*'),
-    git('tag', '--list', 'apps_v*'),
+    git("tag", "--list", "oxlint_v*"),
+    git("tag", "--list", "apps_v*"),
   ]);
   const count =
-    oxlintTags.split('\n').filter(Boolean).length +
-    appsTags.split('\n').filter(Boolean).length;
+    oxlintTags.split("\n").filter(Boolean).length + appsTags.split("\n").filter(Boolean).length;
   if (count === 0) {
     console.error(
-      'ERROR: No oxlint_v* or apps_v* tags found locally.\n' +
-        'Run: git fetch --unshallow --tags\n' +
-        'to fetch the full history and all release tags.',
+      "ERROR: No oxlint_v* or apps_v* tags found locally.\n" +
+        "Run: git fetch --unshallow --tags\n" +
+        "to fetch the full history and all release tags.",
     );
     process.exit(1);
   }
@@ -172,14 +161,14 @@ async function checkGitState() {
 async function main() {
   const { values } = parseArgs({
     options: {
-      json: { type: 'boolean' },
-      output: { type: 'string' },
+      json: { type: "boolean" },
+      output: { type: "string" },
     },
   });
 
   await checkGitState();
 
-  console.error('Discovering rule files...');
+  console.error("Discovering rule files...");
   const rules = await getRuleFiles();
   console.error(`Found ${rules.length} rules. Querying git history...`);
 
@@ -202,10 +191,7 @@ async function main() {
 
   // Sort by (version, plugin, rule)
   results.sort((a, b) => {
-    const vCmp = compareVersionKeys(
-      versionSortKey(a.introducedIn),
-      versionSortKey(b.introducedIn),
-    );
+    const vCmp = compareVersionKeys(versionSortKey(a.introducedIn), versionSortKey(b.introducedIn));
     if (vCmp !== 0) return vCmp;
     if (a.plugin !== b.plugin) return a.plugin.localeCompare(b.plugin);
     return a.rule.localeCompare(b.rule);
@@ -219,18 +205,18 @@ async function main() {
     const lines = [];
     let currentVersion = null;
     for (const r of results) {
-      const v = r.introducedIn ?? 'unknown (pre-release or untagged)';
+      const v = r.introducedIn ?? "unknown (pre-release or untagged)";
       if (v !== currentVersion) {
         currentVersion = v;
         lines.push(`\n## ${v}`);
       }
       lines.push(`  ${r.key}`);
     }
-    outputText = lines.join('\n').trimStart();
+    outputText = lines.join("\n").trimStart();
   }
 
   if (values.output) {
-    await writeFile(values.output, outputText + '\n', 'utf8');
+    await writeFile(values.output, outputText + "\n", "utf8");
     console.error(`Results written to ${values.output}`);
   } else {
     console.log(outputText);
