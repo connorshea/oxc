@@ -11,10 +11,10 @@ use convert_case::{Case, Casing};
 use lazy_regex::regex;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, ArrayExpression, ArrayExpressionElement, AssignmentTarget, CallExpression,
-    Expression, ExpressionStatement, IdentifierName, ObjectExpression, ObjectProperty,
-    ObjectPropertyKind, Program, PropertyKey, Statement, StaticMemberExpression, StringLiteral,
-    TaggedTemplateExpression, TemplateLiteral,
+    Argument, ArrayExpression, ArrayExpressionElement, AssignmentTarget, BindingPattern,
+    CallExpression, Expression, ExpressionStatement, IdentifierName, ObjectExpression,
+    ObjectProperty, ObjectPropertyKind, Program, PropertyKey, Statement, StaticMemberExpression,
+    StringLiteral, TaggedTemplateExpression, TemplateLiteral,
 };
 use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
@@ -463,6 +463,9 @@ struct State<'a> {
     invalid_tests: Vec<&'a Expression<'a>>,
     expression_to_group_comment_map: FxHashMap<Span, String>,
     group_comment_stack: Vec<String>,
+    /// Variable declarations in the test file (e.g. `const cases = [...]`).
+    /// Used to resolve spread elements like `...cases` in valid/invalid arrays.
+    declarations: FxHashMap<&'a str, &'a Expression<'a>>,
 }
 
 impl<'a> State<'a> {
@@ -473,6 +476,7 @@ impl<'a> State<'a> {
             invalid_tests: vec![],
             expression_to_group_comment_map: FxHashMap::default(),
             group_comment_stack: vec![],
+            declarations: FxHashMap::default(),
         }
     }
 
@@ -533,6 +537,19 @@ impl<'a> Visit<'a> for State<'a> {
                     self.visit_object_expression(obj_expr);
                 }
             }
+            // Track top-level variable declarations so we can resolve spread elements
+            // like `...cases` when `cases` is defined as an array literal earlier in the file.
+            Statement::VariableDeclaration(decl) => {
+                for declarator in &decl.declarations {
+                    if let BindingPattern::BindingIdentifier(ident) = &declarator.id {
+                        if let Some(init) = &declarator.init {
+                            let name = ident.name.as_str();
+                            let value = self.alloc(init);
+                            self.declarations.insert(name, value);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -570,10 +587,10 @@ impl<'a> Visit<'a> for State<'a> {
             "valid" => {
                 if let Expression::ArrayExpression(array_expr) = &prop.value {
                     let array_expr = self.alloc(array_expr);
-                    for arg in &array_expr.elements {
-                        if let Some(expr) = arg.as_expression() {
-                            self.add_valid_test(expr);
-                        }
+                    let tests =
+                        expand_array_elements(array_expr.elements.iter(), &self.declarations);
+                    for test in tests {
+                        self.add_valid_test(test);
                     }
                 }
 
@@ -605,10 +622,10 @@ impl<'a> Visit<'a> for State<'a> {
             "invalid" => {
                 if let Expression::ArrayExpression(array_expr) = &prop.value {
                     let array_expr = self.alloc(array_expr);
-                    for arg in &array_expr.elements {
-                        if let Some(expr) = arg.as_expression() {
-                            self.add_invalid_test(expr);
-                        }
+                    let tests =
+                        expand_array_elements(array_expr.elements.iter(), &self.declarations);
+                    for test in tests {
+                        self.add_invalid_test(test);
                     }
                 }
 
@@ -636,6 +653,61 @@ impl<'a> Visit<'a> for State<'a> {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Expands array elements into test case expressions, handling spread elements.
+///
+/// For each element:
+/// - Regular expressions are added directly.
+/// - Spread elements (`...[...]`) are recursively expanded.
+/// - Spread of identifiers (`...varName`) are resolved via the `declarations` map.
+/// - Complex spreads (e.g. `...[...].flatMap(fn)`) are silently skipped since
+///   they require runtime evaluation to resolve.
+fn expand_array_elements<'a>(
+    elements: impl Iterator<Item = &'a ArrayExpressionElement<'a>>,
+    declarations: &FxHashMap<&'a str, &'a Expression<'a>>,
+) -> Vec<&'a Expression<'a>> {
+    let mut result = Vec::new();
+    for element in elements {
+        match element {
+            ArrayExpressionElement::SpreadElement(spread) => {
+                let spread_results = expand_from_spread(&spread.argument, declarations);
+                result.extend(spread_results);
+            }
+            _ => {
+                if let Some(expr) = element.as_expression() {
+                    result.push(expr);
+                }
+            }
+        }
+    }
+    result
+}
+
+/// Expands a spread argument into individual expressions.
+fn expand_from_spread<'a>(
+    expr: &'a Expression<'a>,
+    declarations: &FxHashMap<&'a str, &'a Expression<'a>>,
+) -> Vec<&'a Expression<'a>> {
+    match expr {
+        Expression::ArrayExpression(array_expr) => {
+            // `...[expr1, expr2, ...]` — inline array spread
+            expand_array_elements(array_expr.elements.iter(), declarations)
+        }
+        Expression::Identifier(ident) => {
+            // `...identifier` — look up the variable in top-level declarations
+            if let Some(&decl_expr) = declarations.get(ident.name.as_str()) {
+                expand_from_spread(decl_expr, declarations)
+            } else {
+                vec![]
+            }
+        }
+        _ => {
+            // Complex spreads like `...[...].flatMap(fn)` or `...expr.map(fn)` require
+            // runtime evaluation, so we cannot resolve them statically.
+            vec![]
         }
     }
 }
