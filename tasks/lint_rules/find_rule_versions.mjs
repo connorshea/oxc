@@ -140,6 +140,27 @@ function compareVersionKeys(a, b) {
   return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 }
 
+/**
+ * Return a map of tag name → release date string (YYYY-MM-DD) for all oxlint
+ * release tags (both oxlint_v* and apps_v* formats).
+ *
+ * @returns {Promise<Map<string, string>>}
+ */
+async function getTagDates() {
+  const output = await git(
+    "for-each-ref",
+    "--format=%(refname:short) %(creatordate:short)",
+    "refs/tags/oxlint_v*",
+    "refs/tags/apps_v*",
+  );
+  const dates = new Map();
+  for (const line of output.split("\n").filter(Boolean)) {
+    const spaceIdx = line.indexOf(" ");
+    dates.set(line.slice(0, spaceIdx), line.slice(spaceIdx + 1));
+  }
+  return dates;
+}
+
 async function checkGitState() {
   const [oxlintTags, appsTags] = await Promise.all([
     git("tag", "--list", "oxlint_v*"),
@@ -166,7 +187,7 @@ async function main() {
     },
   });
 
-  await checkGitState();
+  const [, tagDates] = await Promise.all([checkGitState(), getTagDates()]);
 
   console.error("Discovering rule files...");
   const rules = await getRuleFiles();
@@ -200,7 +221,11 @@ async function main() {
   let outputText;
 
   if (values.json) {
-    outputText = JSON.stringify(results, null, 2);
+    const withDates = results.map((r) => ({
+      ...r,
+      introducedInDate: r.introducedIn ? (tagDates.get(r.introducedIn) ?? null) : null,
+    }));
+    outputText = JSON.stringify(withDates, null, 2);
   } else {
     const lines = [];
     let currentVersion = null;
@@ -208,7 +233,9 @@ async function main() {
       const v = r.introducedIn ?? "unknown (pre-release or untagged)";
       if (v !== currentVersion) {
         currentVersion = v;
-        lines.push(`\n## ${v}`);
+        const date = r.introducedIn ? tagDates.get(r.introducedIn) : null;
+        const heading = date ? `${v} (${date})` : v;
+        lines.push(`\n## ${heading}`);
       }
       lines.push(`  ${r.key}`);
     }
