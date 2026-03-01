@@ -45,10 +45,12 @@ async function getRuleFiles() {
 
   const pluginDirs = await readdir(RULES_DIR);
 
-  for (const plugin of pluginDirs.sort()) {
-    const pluginPath = join(RULES_DIR, plugin);
+  for (const pluginDir of pluginDirs.sort()) {
+    const pluginPath = join(RULES_DIR, pluginDir);
     if (!(await stat(pluginPath)).isDirectory()) continue;
 
+    // Normalise directory name to kebab-case (e.g. jsx_a11y → jsx-a11y)
+    const plugin = pluginDir.replaceAll("_", "-");
     const entries = await readdir(pluginPath);
 
     for (const entry of entries.sort()) {
