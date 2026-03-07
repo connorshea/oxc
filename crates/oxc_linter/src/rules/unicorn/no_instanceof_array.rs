@@ -74,26 +74,26 @@ fn test() {
     use crate::tester::Tester;
 
     let pass = vec![
-        ("Array.isArray(arr)", None),
-        ("arr instanceof Object", None),
-        ("arr instanceof array", None),
-        ("a instanceof 'array'", None),
-        ("a instanceof ArrayA", None),
-        ("a.x[2] instanceof foo()", None),
-        ("Array.isArray([1,2,3]) === true", None),
-        ("\"arr instanceof Array\"", None),
+        "Array.isArray(arr)",
+        "arr instanceof Object",
+        "arr instanceof array",
+        "a instanceof 'array'",
+        "a instanceof ArrayA",
+        "a.x[2] instanceof foo()",
+        "Array.isArray([1,2,3]) === true",
+        "\"arr instanceof Array\"",
     ];
 
     let fail = vec![
-        ("arr instanceof Array", None),
-        ("[] instanceof Array", None),
-        ("[] instanceof (Array)", None),
-        ("[1,2,3] instanceof Array === true", None),
-        ("fun.call(1, 2, 3) instanceof Array", None),
-        ("obj.arr instanceof Array", None),
-        ("foo.bar[2] instanceof Array", None),
-        ("(0, array) instanceof Array", None),
-        ("function foo(){return [] instanceof Array}", None),
+        "arr instanceof Array",
+        "[] instanceof Array",
+        "[] instanceof (Array)",
+        "[1,2,3] instanceof Array === true",
+        "fun.call(1, 2, 3) instanceof Array",
+        "obj.arr instanceof Array",
+        "foo.bar[2] instanceof Array",
+        "(0, array) instanceof Array",
+        "function foo(){return [] instanceof Array}",
     ];
 
     let fix = vec![

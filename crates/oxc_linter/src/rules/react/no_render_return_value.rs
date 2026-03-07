@@ -98,48 +98,36 @@ fn test() {
     use crate::tester::Tester;
 
     let pass = vec![
-        ("ReactDOM.render(<div />, document.body);", None),
-        (
-            "
+        "ReactDOM.render(<div />, document.body);",
+        "
                     let node;
                     ReactDOM.render(<div ref={ref => node = ref}/>, document.body);
                   ",
-            None,
-        ),
-        ("ReactDOM.render(<div ref={ref => this.node = ref}/>, document.body);", None),
-        ("React.render(<div ref={ref => this.node = ref}/>, document.body);", None),
-        ("React.render(<div ref={ref => this.node = ref}/>, document.body);", None),
-        ("var foo = React.render(<div />, root);", None),
-        ("var foo = render(<div />, root)", None),
-        ("var foo = ReactDom.renderder(<div />, root)", None),
-        (
-            "export const foo = () => ({ destroy: ({ dom }) => { ReactDOM.unmountComponentAtNode(dom); } });",
-            None,
-        ),
+        "ReactDOM.render(<div ref={ref => this.node = ref}/>, document.body);",
+        "React.render(<div ref={ref => this.node = ref}/>, document.body);",
+        "React.render(<div ref={ref => this.node = ref}/>, document.body);",
+        "var foo = React.render(<div />, root);",
+        "var foo = render(<div />, root)",
+        "var foo = ReactDom.renderder(<div />, root)",
+        "export const foo = () => ({ destroy: ({ dom }) => { ReactDOM.unmountComponentAtNode(dom); } });",
     ];
 
     let fail = vec![
-        ("var Hello = ReactDOM.render(<div />, document.body);", None),
-        (
-            "
+        "var Hello = ReactDOM.render(<div />, document.body);",
+        "
                     var o = {
                       inst: ReactDOM.render(<div />, document.body)
                     };
                   ",
-            None,
-        ),
-        (
-            "
+        "
                     function render () {
                       return ReactDOM.render(<div />, document.body)
                     }
                   ",
-            None,
-        ),
-        ("var render = (a, b) => ReactDOM.render(a, b)", None),
-        ("this.o = ReactDOM.render(<div />, document.body);", None),
-        ("var v; v = ReactDOM.render(<div />, document.body);", None),
-        ("var inst = ReactDOM.render(<div />, document.body);", None),
+        "var render = (a, b) => ReactDOM.render(a, b)",
+        "this.o = ReactDOM.render(<div />, document.body);",
+        "var v; v = ReactDOM.render(<div />, document.body);",
+        "var inst = ReactDOM.render(<div />, document.body);",
         // This rule is only supported for react versions >= 15.0.0, so the following are not supported.
         // See https://github.com/oxc-project/oxc/pull/1042#discussion_r1369762147
         // ("var inst = React.render(<div />, document.body);", None),

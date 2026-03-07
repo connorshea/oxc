@@ -90,18 +90,18 @@ fn test() {
     use crate::tester::Tester;
 
     let pass = vec![
-        ("const list = new Array(5).fill().map(_ => {})", None),
-        ("const list = new Array(5).flat()", None),
-        ("const list = new Array(5).concat()", None),
-        ("const list = new Array('x').forEach((x) => console.log(x))", None),
-        ("const list = new Array(1, 2).forEach((x) => console.log(x))", None),
-        ("const list = new Array(...[1, 2, 3]).forEach((x) => console.log(x))", None),
+        "const list = new Array(5).fill().map(_ => {})",
+        "const list = new Array(5).flat()",
+        "const list = new Array(5).concat()",
+        "const list = new Array('x').forEach((x) => console.log(x))",
+        "const list = new Array(1, 2).forEach((x) => console.log(x))",
+        "const list = new Array(...[1, 2, 3]).forEach((x) => console.log(x))",
     ];
 
     let fail = vec![
-        ("const list = new Array(5).map(_ => {})", None),
-        ("const list = new Array(5).filter(function(_) {})", None),
-        ("const list = new Array(5)['every'](function(_) {})", None),
+        "const list = new Array(5).map(_ => {})",
+        "const list = new Array(5).filter(function(_) {})",
+        "const list = new Array(5)['every'](function(_) {})",
     ];
 
     Tester::new(UninvokedArrayCallback::NAME, UninvokedArrayCallback::PLUGIN, pass, fail)

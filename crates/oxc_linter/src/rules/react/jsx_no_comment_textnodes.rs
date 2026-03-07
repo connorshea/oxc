@@ -82,8 +82,7 @@ fn test() {
     use crate::tester::Tester;
 
     let pass = vec![
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (
@@ -94,10 +93,7 @@ fn test() {
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (
@@ -108,20 +104,14 @@ fn test() {
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (<div>{/* valid */}</div>);
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            const bar = (<div>{/* valid */}</div>);
@@ -129,10 +119,7 @@ fn test() {
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        var Hello = createReactClass({
 			          foo: (<div>{/* valid */}</div>),
 			          render() {
@@ -140,10 +127,7 @@ fn test() {
 			          },
 			        });
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (
@@ -156,10 +140,7 @@ fn test() {
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (
@@ -169,99 +150,63 @@ fn test() {
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        var foo = require('foo');
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        <Foo bar='test'>
 			          {/* valid */}
 			        </Foo>
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        <strong>
 			          &nbsp;https://www.example.com/attachment/download/1
 			        </strong>
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        <Foo /* valid */ placeholder={'foo'}/>
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        </* valid */></>
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        <></* valid *//>
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        <Foo title={'foo' /* valid */}/>
 			      ",
-            None,
-        ),
-        ("<pre>&#x2F;&#x2F; TODO: Write perfect code</pre>", None),
-        ("<pre>&#x2F;&#42; TODO: Write perfect code &#42;&#x2F;</pre>", None),
-        (
-            "
+        "<pre>&#x2F;&#x2F; TODO: Write perfect code</pre>",
+        "<pre>&#x2F;&#42; TODO: Write perfect code &#42;&#x2F;</pre>",
+        "
 			        <div>
 			          <span className=\"pl-c\"><span className=\"pl-c\">&#47;&#47;</span> ...</span><br />
 			        </div>
 			      ",
-            None,
-        ),
     ];
 
     let fail = vec![
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (<div>// invalid</div>);
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (<>// invalid</>);
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (<div>/* invalid */</div>);
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (
@@ -272,10 +217,7 @@ fn test() {
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (
@@ -288,10 +230,7 @@ fn test() {
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        class Comp1 extends Component {
 			          render() {
 			            return (
@@ -304,16 +243,11 @@ fn test() {
 			          }
 			        }
 			      ",
-            None,
-        ),
-        (
-            "
+        "
 			        const Component2 = () => {
 			          return <span>/*</span>;
 			        };
 			      ",
-            None,
-        ),
     ];
 
     Tester::new(JsxNoCommentTextnodes::NAME, JsxNoCommentTextnodes::PLUGIN, pass, fail)

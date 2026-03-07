@@ -126,72 +126,58 @@ fn test() {
     use crate::tester::Tester;
 
     let pass = vec![
-        ("let a = Object();", None),
-        ("let foo: { x: number; y: number } = { x: 1, y: 1 };", None),
-        ("let g = Object.create(null);", None),
-        ("let h = String(false);", None),
-        ("let b: undefined;", None),
-        ("let c: null;", None),
-        ("let a: [];", None),
-        ("let tuple: [boolean, string] = [true, \"hello\"];", None),
-        (
-            "
+        "let a = Object();",
+        "let foo: { x: number; y: number } = { x: 1, y: 1 };",
+        "let g = Object.create(null);",
+        "let h = String(false);",
+        "let b: undefined;",
+        "let c: null;",
+        "let a: [];",
+        "let tuple: [boolean, string] = [true, \"hello\"];",
+        "
   type Props = {
     onClick: () => void;
   }",
-            None,
-        ),
     ];
 
     let fail = vec![
-        ("let a: String;", None),
-        ("let b: Boolean;", None),
-        ("let c: Number;", None),
-        ("let d: Symbol;", None),
-        ("let e: BigInt;", None),
-        ("let f: Object;", None),
-        ("let g: Function;", None),
-        ("let h: {}; ", None),
-        ("let i: { b: String };", None),
-        ("let j: { c: String };", None),
-        ("function foo(arg0: String) {}", None),
-        ("'foo' as String;", None),
-        ("'baz' as Function;", None),
-        ("let d: Symbol = Symbol('foo');", None),
-        ("let baz: [boolean, Boolean] = [true, false];", None),
-        ("let z = true as Boolean;", None),
-        ("type Props = {};", None),
-        ("let fn: Function = () => true", None),
-        ("const str: String = 'foo';", None),
-        ("const bool: Boolean = true;", None),
-        ("const num: Number = 1;", None),
-        ("const symb: Symbol = Symbol('foo');", None),
-        ("const bigInt: BigInt = 1n;", None),
-        (
-            "const emptyObj: {
-
+        "let a: String;",
+        "let b: Boolean;",
+        "let c: Number;",
+        "let d: Symbol;",
+        "let e: BigInt;",
+        "let f: Object;",
+        "let g: Function;",
+        "let h: {}; ",
+        "let i: { b: String };",
+        "let j: { c: String };",
+        "function foo(arg0: String) {}",
+        "'foo' as String;",
+        "'baz' as Function;",
+        "let d: Symbol = Symbol('foo');",
+        "let baz: [boolean, Boolean] = [true, false];",
+        "let z = true as Boolean;",
+        "type Props = {};",
+        "let fn: Function = () => true",
+        "const str: String = 'foo';",
+        "const bool: Boolean = true;",
+        "const num: Number = 1;",
+        "const symb: Symbol = Symbol('foo');",
+        "const bigInt: BigInt = 1n;",
+        "const emptyObj: {
         } = {foo: \"bar\"};",
-            None,
-        ),
-        ("const emptyEmptyObj: {} = { };", None),
-        (
-            "
+        "const emptyEmptyObj: {} = { };",
+        "
         class Test<T = Boolean> extends Foo<String> implements Bar<Object> {
           constructor(foo: String | Object | Function) {}
-
           arg(): Array<String> {
             const foo: String = 1 as String;
           }
         }",
-            None,
-        ),
-        (
-            "
+        "
 type Props = {
   onClick: Function
 }",
-            None,
-        ),
     ];
 
     Tester::new(BanTypes::NAME, BanTypes::PLUGIN, pass, fail).test_and_snapshot();

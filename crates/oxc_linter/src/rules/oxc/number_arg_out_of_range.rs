@@ -90,15 +90,15 @@ impl Rule for NumberArgOutOfRange {
 fn test() {
     use crate::tester::Tester;
 
-    let pass = vec![("var x = 42;var s = x.toString(16);", None)];
+    let pass = vec!["var x = 42;var s = x.toString(16);"];
 
     let fail = vec![
-        ("var x = 42;var s = x.toString(1);", None),
-        ("var x = 42;var s = x.toString(43);", None),
-        ("var x = 42;var s = x.toFixed(22);", None),
-        ("var x = 42;var s = x['toExponential'](22);", None),
-        ("var x = 42;var s = x.toPrecision(0);", None),
-        ("var x = 42;var s = x.toPrecision(100);", None),
+        "var x = 42;var s = x.toString(1);",
+        "var x = 42;var s = x.toString(43);",
+        "var x = 42;var s = x.toFixed(22);",
+        "var x = 42;var s = x['toExponential'](22);",
+        "var x = 42;var s = x.toPrecision(0);",
+        "var x = 42;var s = x.toPrecision(100);",
     ];
 
     Tester::new(NumberArgOutOfRange::NAME, NumberArgOutOfRange::PLUGIN, pass, fail)

@@ -86,15 +86,14 @@ fn test() {
     use crate::tester::Tester;
 
     let pass = vec![
-        ("var React, App; <App />;", None),
-        ("var React; <img />;", None),
-        ("var React; <>fragment</>;", None),
-        ("var React; <x-gif />;", None),
-        ("var React, App, a=1; <App attr={a} />;", None),
-        ("var React, App, a=1; function elem() { return <App attr={a} />; }", None),
-        ("var React, App; <App />;", None),
-        (
-            "
+        "var React, App; <App />;",
+        "var React; <img />;",
+        "var React; <>fragment</>;",
+        "var React; <x-gif />;",
+        "var React, App, a=1; <App attr={a} />;",
+        "var React, App, a=1; function elem() { return <App attr={a} />; }",
+        "var React, App; <App />;",
+        "
 			        import React from 'react/addons';
 			        const Button = createReactClass({
 			          render() {
@@ -105,17 +104,15 @@ fn test() {
 			        });
 			        export default Button;
 			      ",
-            None,
-        ),
-        ("var React, a = <img />;", None),
+        "var React, a = <img />;",
     ];
 
     let fail = vec![
-        ("var App, a = <App />;", None),
-        ("var a = <App />;", None),
-        ("var a = <img />;", None),
-        ("var a = <>fragment</>;", None),
-        ("var Foo, a = <img />;", None),
+        "var App, a = <App />;",
+        "var a = <App />;",
+        "var a = <img />;",
+        "var a = <>fragment</>;",
+        "var Foo, a = <img />;",
     ];
 
     Tester::new(ReactInJsxScope::NAME, ReactInJsxScope::PLUGIN, pass, fail).test_and_snapshot();

@@ -87,13 +87,12 @@ fn test() {
 
     // Note: lone `Error()` should be caught by no-effect-call
     let pass = vec![
-        ("function foo() { throw new Error() }", None),
-        ("const foo = () => new Error()", None),
-        ("[new Error()]", None),
+        "function foo() { throw new Error() }",
+        "const foo = () => new Error()",
+        "[new Error()]",
     ];
 
-    let fail =
-        vec![("function foo() { new Error() }", None), ("const foo = () => { new Error() }", None)];
+    let fail = vec!["function foo() { new Error() }", "const foo = () => { new Error() }"];
 
     let fix = vec![
         ("function foo() { new Error() }", "function foo() { throw new Error() }"),
