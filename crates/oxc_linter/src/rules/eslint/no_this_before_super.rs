@@ -63,9 +63,11 @@ enum DefinitelyCallsThisBeforeSuper {
 }
 
 /// Node types that should be in the file in order to run this analysis. Otherwise, the AST
-/// will be skipped for linting.
+/// will be skipped for linting. `this`/`super` only matter for this rule inside a class
+/// constructor, so we also require `Class` to be present.
 const NEEDED_NODE_TYPES: &AstTypesBitset =
     &AstTypesBitset::from_types(&[AstType::ThisExpression, AstType::Super]);
+const CLASS_NODE_TYPE: &AstTypesBitset = &AstTypesBitset::from_types(&[AstType::Class]);
 
 impl Rule for NoThisBeforeSuper {
     fn run_once(&self, ctx: &LintContext) {
@@ -78,9 +80,9 @@ impl Rule for NoThisBeforeSuper {
             FxHashMap::<BlockNodeId, Vec<NodeId>>::default();
         for node in ctx.nodes() {
             match node.kind() {
-                AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
-                    if Self::is_wanted_node(node, ctx).unwrap_or_default() =>
-                {
+                // A constructor's body is always a `Function` (per `MethodDefinition.value`),
+                // never an `ArrowFunctionExpression`, so we only need to check `Function` here.
+                AstKind::Function(_) if Self::is_wanted_node(node, ctx).unwrap_or_default() => {
                     wanted_nodes.push(node);
                 }
                 AstKind::Super(_) => {
@@ -143,25 +145,26 @@ impl Rule for NoThisBeforeSuper {
     }
 
     fn should_run(&self, ctx: &crate::context::ContextHost) -> bool {
-        ctx.semantic().nodes().contains_any(NEEDED_NODE_TYPES)
+        let nodes = ctx.semantic().nodes();
+        nodes.contains_any(CLASS_NODE_TYPE) && nodes.contains_any(NEEDED_NODE_TYPES)
     }
 }
 
 impl NoThisBeforeSuper {
     fn is_wanted_node(node: &AstNode, ctx: &LintContext<'_>) -> Option<bool> {
-        let parent = ctx.nodes().parent_node(node.id());
-        let method_def = parent.kind().as_method_definition()?;
+        let nodes = ctx.nodes();
+        let parent_id = nodes.parent_id(node.id());
+        let method_def = nodes.kind(parent_id).as_method_definition()?;
 
-        if matches!(method_def.kind, MethodDefinitionKind::Constructor) {
-            let parent_2 = ctx.nodes().parent_node(parent.id());
-            let parent_3 = ctx.nodes().parent_node(parent_2.id());
-
-            let class = parent_3.kind().as_class()?;
-            let super_class = class.super_class.as_ref()?;
-            return Some(!matches!(super_class, Expression::NullLiteral(_)));
+        if !matches!(method_def.kind, MethodDefinitionKind::Constructor) {
+            return Some(false);
         }
 
-        Some(false)
+        // Walk up to the enclosing `Class`: MethodDefinition -> ClassBody -> Class.
+        let class_id = nodes.parent_id(nodes.parent_id(parent_id));
+        let class = nodes.kind(class_id).as_class()?;
+        let super_class = class.super_class.as_ref()?;
+        Some(!matches!(super_class, Expression::NullLiteral(_)))
     }
 
     fn analyze(
@@ -276,7 +279,7 @@ impl NoThisBeforeSuper {
     }
 
     fn contains_this_or_super_in_args(args: &[Argument]) -> bool {
-        args.iter().any(|arg| Self::contains_this_or_super(arg))
+        args.iter().any(Self::contains_this_or_super)
     }
 }
 
