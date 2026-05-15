@@ -1,21 +1,13 @@
 use rustc_hash::FxHashSet;
 
-use oxc_ast::{AstKind, AstType};
+use oxc_ast::AstKind;
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_macros::declare_oxc_lint;
 use oxc_semantic::{AstNode, NodeId, SymbolId};
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::symbol::SymbolFlags;
 
-use crate::{context::ContextHost, context::LintContext, rule::Rule};
-
-const LOOP_NODE_TYPES: &AstTypesBitset = &AstTypesBitset::from_types(&[
-    AstType::ForStatement,
-    AstType::ForInStatement,
-    AstType::ForOfStatement,
-    AstType::WhileStatement,
-    AstType::DoWhileStatement,
-]);
+use crate::{context::LintContext, rule::Rule};
 
 fn no_loop_func_diagnostic(span: Span) -> OxcDiagnostic {
     OxcDiagnostic::warn("Function declared in a loop contains unsafe references to variable(s)")
@@ -66,48 +58,79 @@ declare_oxc_lint!(
 );
 
 impl Rule for NoLoopFunc {
-    fn should_run(&self, ctx: &ContextHost) -> bool {
-        // The rule only fires for functions inside loops, so skip files
-        // that contain no loop statements at all.
-        ctx.semantic().nodes().contains_any(LOOP_NODE_TYPES)
-    }
-
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
-        // Check for function expressions, arrow functions, and function declarations
-        let (func_span, is_async_or_generator) = match node.kind() {
-            AstKind::Function(func) => {
-                // Skip if not inside a statement (i.e., method definitions, etc.)
-                if !func.is_expression() && !func.is_declaration() {
-                    return;
-                }
-
-                (func.span, func.r#async || func.generator)
-            }
-            AstKind::ArrowFunctionExpression(arrow) => (arrow.span, arrow.r#async),
+        // Dispatch on loop nodes so codegen narrows `NODE_TYPES` to only loop kinds, which
+        // skips the rule entirely for files without loops without needing a `should_run` hook.
+        let body_span = match node.kind() {
+            AstKind::ForStatement(stmt) => stmt.body.span(),
+            AstKind::ForInStatement(stmt) => stmt.body.span(),
+            AstKind::ForOfStatement(stmt) => stmt.body.span(),
+            AstKind::WhileStatement(stmt) => stmt.body.span(),
+            AstKind::DoWhileStatement(stmt) => stmt.body.span(),
             _ => return,
         };
+        Self::check_loop(node, body_span, ctx);
+    }
+}
 
-        // Find the containing loop, if any
-        let Some(loop_node) = Self::get_containing_loop(node, ctx) else {
-            return;
-        };
+impl NoLoopFunc {
+    fn check_loop<'a>(loop_node: &AstNode<'a>, body_span: Span, ctx: &LintContext<'a>) {
+        // Walk descendants of the loop and inspect every function/arrow inside its body.
+        // `NodeId`s are assigned in DFS pre-order by the semantic builder, so descendants
+        // live in `(loop_id, ...]` until we exit the loop's span entirely.
+        let nodes = ctx.nodes();
+        let loop_span = loop_node.span();
+        let total = nodes.len();
+        let start = loop_node.id().index() + 1;
 
-        // Skip synchronous IIFEs (Immediately Invoked Function Expressions) only if they
-        // don't contain nested functions. Nested functions inside an IIFE could escape
-        // (be returned, stored, etc.) with captured variables that change across iterations.
-        // Async IIFEs and generator IIFEs are never safe:
-        // - Async: execution suspends at await points, may resume after loop iteration
-        // - Generator: returns iterator, code runs when iterated (possibly after loop)
-        if !is_async_or_generator
-            && Self::is_safe_iife(node, ctx)
-            && !Self::contains_nested_functions(node, ctx)
-        {
-            return;
-        }
+        for idx in start..total {
+            let descendant = nodes.get_node(NodeId::new(idx));
+            let descendant_span = descendant.span();
+            if !loop_span.contains_inclusive(descendant_span) {
+                break;
+            }
+            // Skip init/test/update (and for-in/for-of `left`) — only the body matters.
+            if !body_span.contains_inclusive(descendant_span) {
+                continue;
+            }
 
-        // Check if any referenced variables are unsafe
-        if Self::has_unsafe_references(node, loop_node, ctx) {
-            ctx.diagnostic(no_loop_func_diagnostic(func_span));
+            let (func_span, is_async_or_generator) = match descendant.kind() {
+                AstKind::Function(func) => {
+                    if !func.is_expression() && !func.is_declaration() {
+                        continue;
+                    }
+                    (func.span, func.r#async || func.generator)
+                }
+                AstKind::ArrowFunctionExpression(arrow) => (arrow.span, arrow.r#async),
+                _ => continue,
+            };
+
+            // Only process functions whose *innermost* containing loop is this one. Functions
+            // inside a nested loop are handled when `run` is invoked on that inner loop, and
+            // functions nested inside another function are unreachable through the outer loop.
+            let Some(innermost_loop) = Self::get_containing_loop(descendant, ctx) else {
+                continue;
+            };
+            if innermost_loop.id() != loop_node.id() {
+                continue;
+            }
+
+            // Skip synchronous IIFEs (Immediately Invoked Function Expressions) only if they
+            // don't contain nested functions. Nested functions inside an IIFE could escape
+            // (be returned, stored, etc.) with captured variables that change across iterations.
+            // Async IIFEs and generator IIFEs are never safe:
+            // - Async: execution suspends at await points, may resume after loop iteration
+            // - Generator: returns iterator, code runs when iterated (possibly after loop)
+            if !is_async_or_generator
+                && Self::is_safe_iife(descendant, ctx)
+                && !Self::contains_nested_functions(descendant, ctx)
+            {
+                continue;
+            }
+
+            if Self::has_unsafe_references(descendant, loop_node, ctx) {
+                ctx.diagnostic(no_loop_func_diagnostic(func_span));
+            }
         }
     }
 }
