@@ -53,6 +53,33 @@ pub struct PropNameCasing(Box<Config>);
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct Options {
     ignore_props: Vec<String>,
+    #[serde(skip)]
+    #[schemars(skip)]
+    ignore_props_matchers: Vec<IgnorePropMatcher>,
+}
+
+/// Matches upstream `toRegExpGroupMatcher`: a pattern wrapped in slashes
+/// (`/foo/`) is treated as a regular expression; everything else is a
+/// literal string compare. Invalid regex patterns never match and are
+/// dropped at compile time.
+#[derive(Debug, Clone)]
+enum IgnorePropMatcher {
+    Exact(String),
+    Pattern(Regex),
+}
+
+fn compile_ignore_props(patterns: &[String]) -> Vec<IgnorePropMatcher> {
+    patterns
+        .iter()
+        .filter_map(|pattern| {
+            let bytes = pattern.as_bytes();
+            if bytes.len() >= 2 && bytes[0] == b'/' && bytes[bytes.len() - 1] == b'/' {
+                Regex::new(&pattern[1..pattern.len() - 1]).ok().map(IgnorePropMatcher::Pattern)
+            } else {
+                Some(IgnorePropMatcher::Exact(pattern.clone()))
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema)]
@@ -104,7 +131,10 @@ declare_oxc_lint!(
 
 impl Rule for PropNameCasing {
     fn from_configuration(value: serde_json::Value) -> Result<Self, serde_json::Error> {
-        serde_json::from_value::<TupleRuleConfig<Self>>(value).map(TupleRuleConfig::into_inner)
+        let mut rule = serde_json::from_value::<TupleRuleConfig<Self>>(value)
+            .map(TupleRuleConfig::into_inner)?;
+        rule.0.1.ignore_props_matchers = compile_ignore_props(&rule.0.1.ignore_props);
+        Ok(rule)
     }
 
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
@@ -183,7 +213,7 @@ impl PropNameCasing {
 
     fn report_if_invalid(&self, name: &str, span: Span, ctx: &LintContext<'_>) {
         let Config(case_type, options) = &*self.0;
-        if is_ignored(name, &options.ignore_props) {
+        if is_ignored(name, &options.ignore_props_matchers) {
             return;
         }
         if check_case(name, *case_type) {
@@ -233,22 +263,11 @@ fn check_case(s: &str, case_type: CaseType) -> bool {
     }
 }
 
-/// Matches upstream `toRegExpGroupMatcher`: a pattern wrapped in slashes
-/// (`/foo/`) is treated as a regular expression; everything else is a
-/// literal string compare.
-fn is_ignored(name: &str, patterns: &[String]) -> bool {
-    for pattern in patterns {
-        let bytes = pattern.as_bytes();
-        if bytes.len() >= 2 && bytes[0] == b'/' && bytes[bytes.len() - 1] == b'/' {
-            let inner = &pattern[1..pattern.len() - 1];
-            if Regex::new(inner).is_ok_and(|re| re.is_match(name)) {
-                return true;
-            }
-        } else if pattern == name {
-            return true;
-        }
-    }
-    false
+fn is_ignored(name: &str, matchers: &[IgnorePropMatcher]) -> bool {
+    matchers.iter().any(|matcher| match matcher {
+        IgnorePropMatcher::Exact(pattern) => pattern == name,
+        IgnorePropMatcher::Pattern(re) => re.is_match(name),
+    })
 }
 
 #[test]
