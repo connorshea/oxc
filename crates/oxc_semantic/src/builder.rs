@@ -651,11 +651,9 @@ impl<'a> SemanticBuilder<'a> {
     fn resolve_all_references(&mut self) {
         let names = self.reference_names.take();
         for (index, name) in names.into_iter().enumerate() {
+            // `None` means early resolution of a parameter list already bound this reference.
+            let Some(name) = name else { continue };
             let reference_id = ReferenceId::from_usize(index);
-            // Already bound to a symbol by early resolution of a parameter list - nothing to do.
-            if self.scoping.references[reference_id].symbol_id().is_some() {
-                continue;
-            }
             if !self.walk_up_resolve_reference(name, reference_id) {
                 self.scoping.add_root_unresolved_reference(name, reference_id);
             }
@@ -734,7 +732,7 @@ impl<'a> SemanticBuilder<'a> {
     /// references must be resolved before entering the function body, to avoid
     /// binding to variables declared inside the body (which share the same scope).
     ///
-    /// References resolved here record their symbol, which is what makes
+    /// References resolved here are cleared from `reference_names`, which is what makes
     /// `resolve_all_references` skip them later. References that don't resolve are simply
     /// left unresolved and retried by `resolve_all_references` (which handles forward
     /// references to declarations not yet visited).
@@ -745,12 +743,11 @@ impl<'a> SemanticBuilder<'a> {
         let end = self.reference_names.len();
         for index in checkpoint..end {
             let reference_id = ReferenceId::from_usize(index);
-            // Already bound by early resolution of a nested parameter list.
-            if self.scoping.references[reference_id].symbol_id().is_some() {
-                continue;
+            // `None` means a nested parameter list already bound this reference.
+            let Some(name) = self.reference_names.get(reference_id) else { continue };
+            if self.walk_up_resolve_reference(name, reference_id) {
+                self.reference_names.mark_resolved(reference_id);
             }
-            let name = self.reference_names.get(reference_id);
-            self.walk_up_resolve_reference(name, reference_id);
         }
     }
 

@@ -11,16 +11,22 @@ use oxc_syntax::reference::ReferenceId;
 /// Every reference created while building [`Semantic`] goes through
 /// [`SemanticBuilder::declare_reference`], which pushes exactly one name here, so entry `i`
 /// always describes `ReferenceId(i)`. That 1:1 correspondence means the [`ReferenceId`] does
-/// not have to be stored alongside the name (which would cost a further 8 bytes per reference
-/// once padding is accounted for), and "already resolved" is read from the [`Reference`] itself
-/// rather than tracked by compacting this list.
+/// not have to be stored alongside the name, which would cost a further 8 bytes per reference
+/// once padding is accounted for.
+///
+/// An entry is cleared to `None` once its reference has been bound to a symbol, so the passes
+/// which walk a range of references can skip the ones already dealt with without loading the
+/// [`Reference`] itself. `Ident` holds a `NonNull` pointer, so `Option<Ident>` is the same size
+/// as `Ident` - the marker is free.
 ///
 /// [`Semantic`]: crate::Semantic
 /// [`SemanticBuilder::declare_reference`]: crate::SemanticBuilder::declare_reference
 /// [`Reference`]: oxc_syntax::reference::Reference
 pub struct ReferenceNames<'a> {
-    names: Vec<Ident<'a>>,
+    names: Vec<Option<Ident<'a>>>,
 }
+
+const _: () = assert!(size_of::<Option<Ident<'static>>>() == size_of::<Ident<'static>>());
 
 impl<'a> ReferenceNames<'a> {
     pub(crate) fn new() -> Self {
@@ -40,12 +46,12 @@ impl<'a> ReferenceNames<'a> {
     /// The caller must push exactly once per reference created, in [`ReferenceId`] order.
     #[inline]
     pub(crate) fn push(&mut self, name: Ident<'a>) {
-        self.names.push(name);
+        self.names.push(Some(name));
     }
 
     /// Take all recorded names, leaving the list empty. O(1) pointer swap.
     #[inline]
-    pub(crate) fn take(&mut self) -> Vec<Ident<'a>> {
+    pub(crate) fn take(&mut self) -> Vec<Option<Ident<'a>>> {
         std::mem::take(&mut self.names)
     }
 
@@ -58,7 +64,7 @@ impl<'a> ReferenceNames<'a> {
         self.names.len()
     }
 
-    /// Read the name of a reference, by value.
+    /// Read the name of a reference by value, or `None` if it is already bound to a symbol.
     ///
     /// Used by [`crate::SemanticBuilder::resolve_references_for_current_scope`] to process a
     /// range of references without allocating a temporary `Vec`. `Ident<'a>` is `Copy`, so this
@@ -67,7 +73,16 @@ impl<'a> ReferenceNames<'a> {
     /// # Panics
     /// Panics if `reference_id` is out of bounds.
     #[inline]
-    pub(crate) fn get(&self, reference_id: ReferenceId) -> Ident<'a> {
+    pub(crate) fn get(&self, reference_id: ReferenceId) -> Option<Ident<'a>> {
         self.names[reference_id.index()]
+    }
+
+    /// Mark a reference as bound to a symbol, so later passes skip it.
+    ///
+    /// # Panics
+    /// Panics if `reference_id` is out of bounds.
+    #[inline]
+    pub(crate) fn mark_resolved(&mut self, reference_id: ReferenceId) {
+        self.names[reference_id.index()] = None;
     }
 }
