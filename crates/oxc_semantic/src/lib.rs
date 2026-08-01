@@ -38,10 +38,10 @@ mod jsdoc;
 mod label;
 mod multi_index_vec;
 mod node;
+mod reference_names;
 mod scoping;
 mod stats;
 pub mod ts_enum;
-mod unresolved_stack;
 
 #[cfg(feature = "linter")]
 pub use ast_types_bitset::AstTypesBitset;

@@ -34,9 +34,9 @@ use crate::{
     diagnostics::redeclaration,
     label::UnusedLabels,
     node::{Ancestry, AstNodeStore, AstNodeStoreKind},
+    reference_names::ReferenceNames,
     scoping::{Bindings, Scoping},
     stats::Stats,
-    unresolved_stack::UnresolvedReferences,
 };
 #[cfg(feature = "jsdoc")]
 use oxc_jsdoc::JSDocBuilder;
@@ -99,10 +99,12 @@ pub struct SemanticBuilder<'a> {
     pub(crate) node_store: AstNodeStore<'a>,
     pub(crate) scoping: Scoping,
 
-    pub(crate) unresolved_references: UnresolvedReferences<'a>,
+    /// Name of every reference created so far, indexed by `ReferenceId`.
+    pub(crate) reference_names: ReferenceNames<'a>,
     /// Checkpoint for early resolution of function parameter / catch parameter references.
-    /// Tracks the start index in the flat unresolved references list.
-    unresolved_references_checkpoint: usize,
+    /// Tracks the number of references that existed when the parameter list was entered, so
+    /// everything from that `ReferenceId` onwards belongs to the parameters.
+    reference_checkpoint: usize,
 
     unused_labels: UnusedLabels<'a>,
     #[cfg(feature = "jsdoc")]
@@ -162,8 +164,8 @@ impl<'a> SemanticBuilder<'a> {
             node_store: AstNodeStore::default(),
             hoisting_variables: FxHashMap::default(),
             scoping,
-            unresolved_references: UnresolvedReferences::new(),
-            unresolved_references_checkpoint: 0,
+            reference_names: ReferenceNames::new(),
+            reference_checkpoint: 0,
             unused_labels: UnusedLabels::default(),
             #[cfg(feature = "jsdoc")]
             jsdoc: JSDocBuilder::default(),
@@ -345,7 +347,7 @@ impl<'a> SemanticBuilder<'a> {
             stats.references as usize,
             stats.scopes as usize,
         );
-        self.unresolved_references.reserve_exact(stats.references as usize);
+        self.reference_names.reserve_exact(stats.references as usize);
 
         self.class_table_builder.enabled |= self.check_syntax_error;
 
@@ -615,7 +617,10 @@ impl<'a> SemanticBuilder<'a> {
         reference: Reference,
     ) -> ReferenceId {
         let reference_id = self.scoping.create_reference(reference);
-        self.unresolved_references.push(name, reference_id);
+        // `reference_names` is indexed by `ReferenceId`, so this must be the only place references
+        // are created while building `Semantic`, and it must push exactly once per reference.
+        debug_assert_eq!(self.reference_names.len(), reference_id.index());
+        self.reference_names.push(name);
         reference_id
     }
 
@@ -644,8 +649,13 @@ impl<'a> SemanticBuilder<'a> {
     /// Walk-up is faster because it only does hashmap lookups (no drain+insert),
     /// and reference creation is a simple Vec push instead of a hashmap insert.
     fn resolve_all_references(&mut self) {
-        let refs = self.unresolved_references.take();
-        for (name, reference_id) in refs {
+        let names = self.reference_names.take();
+        for (index, name) in names.into_iter().enumerate() {
+            let reference_id = ReferenceId::from_usize(index);
+            // Already bound to a symbol by early resolution of a parameter list - nothing to do.
+            if self.scoping.references[reference_id].symbol_id().is_some() {
+                continue;
+            }
             if !self.walk_up_resolve_reference(name, reference_id) {
                 self.scoping.add_root_unresolved_reference(name, reference_id);
             }
@@ -724,31 +734,24 @@ impl<'a> SemanticBuilder<'a> {
     /// references must be resolved before entering the function body, to avoid
     /// binding to variables declared inside the body (which share the same scope).
     ///
-    /// Resolved references are removed. Unresolved references stay in the flat
-    /// list for later resolution by `resolve_all_references` (which handles
-    /// forward references to declarations not yet visited).
+    /// References resolved here record their symbol, which is what makes
+    /// `resolve_all_references` skip them later. References that don't resolve are simply
+    /// left unresolved and retried by `resolve_all_references` (which handles forward
+    /// references to declarations not yet visited).
     fn resolve_references_for_current_scope(&mut self) {
-        // Process in-place using a retain-style write-cursor — no temporary
-        // `Vec`. Reads each `(name, reference_id)` by value out of the flat
-        // list (both fields are `Copy`), so calling `walk_up_resolve_reference`
-        // (which takes `&mut self`) doesn't conflict with the index read.
-        let checkpoint = self.unresolved_references_checkpoint;
-        let end = self.unresolved_references.len();
-        if end <= checkpoint {
-            return;
-        }
-        let mut write_idx = checkpoint;
-        for read_idx in checkpoint..end {
-            let (name, reference_id) = self.unresolved_references.get(read_idx);
-            if !self.walk_up_resolve_reference(name, reference_id) {
-                // Keep in the flat list — may resolve later via forward declarations.
-                if write_idx != read_idx {
-                    self.unresolved_references.set(write_idx, name, reference_id);
-                }
-                write_idx += 1;
+        // Reads each name by value out of the flat list (`Ident` is `Copy`), so calling
+        // `walk_up_resolve_reference` (which takes `&mut self`) doesn't conflict with the read.
+        let checkpoint = self.reference_checkpoint;
+        let end = self.reference_names.len();
+        for index in checkpoint..end {
+            let reference_id = ReferenceId::from_usize(index);
+            // Already bound by early resolution of a nested parameter list.
+            if self.scoping.references[reference_id].symbol_id().is_some() {
+                continue;
             }
+            let name = self.reference_names.get(reference_id);
+            self.walk_up_resolve_reference(name, reference_id);
         }
-        self.unresolved_references.truncate(write_idx);
     }
 
     pub(crate) fn add_redeclare_variable(
@@ -900,8 +903,6 @@ impl<'a> Visit<'a> for SemanticBuilder<'a> {
         self.current_scope_id =
             self.scoping.add_scope(None, self.node_store.current_node_id, flags);
         program.scope_id.set(Some(self.current_scope_id));
-        // NB: Don't call `self.unresolved_references.increment_scope_depth()`
-        // as scope depth is initialized as 1 already (the scope depth for `Program`).
 
         if let Some(hashbang) = &program.hashbang {
             self.visit_hashbang(hashbang);
@@ -2067,8 +2068,8 @@ impl<'a> Visit<'a> for SemanticBuilder<'a> {
         /* cfg */
 
         // Save checkpoint before visiting type params/params/return type
-        let saved_checkpoint = self.unresolved_references_checkpoint;
-        self.unresolved_references_checkpoint = self.unresolved_references.checkpoint();
+        let saved_checkpoint = self.reference_checkpoint;
+        self.reference_checkpoint = self.reference_names.len();
 
         if let Some(type_parameters) = &func.type_parameters {
             self.visit_ts_type_parameter_declaration(type_parameters);
@@ -2091,7 +2092,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'a> {
             // In both cases, need to avoid binding to variables/types declared inside the function body.
             self.resolve_references_for_current_scope();
         }
-        self.unresolved_references_checkpoint = saved_checkpoint;
+        self.reference_checkpoint = saved_checkpoint;
 
         if let Some(body) = &func.body {
             self.visit_function_body(body);
@@ -2153,8 +2154,8 @@ impl<'a> Visit<'a> for SemanticBuilder<'a> {
         );
 
         // Save checkpoint before visiting type params/params/return type
-        let saved_checkpoint = self.unresolved_references_checkpoint;
-        self.unresolved_references_checkpoint = self.unresolved_references.checkpoint();
+        let saved_checkpoint = self.reference_checkpoint;
+        self.reference_checkpoint = self.reference_names.len();
 
         if let Some(parameters) = &expr.type_parameters {
             self.visit_ts_type_parameter_declaration(parameters);
@@ -2184,7 +2185,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'a> {
             // In both cases, need to avoid binding to variables/types declared inside the function body.
             self.resolve_references_for_current_scope();
         }
-        self.unresolved_references_checkpoint = saved_checkpoint;
+        self.reference_checkpoint = saved_checkpoint;
 
         self.visit_arrow_function_body(&expr.body);
 
@@ -2387,8 +2388,8 @@ impl<'a> Visit<'a> for SemanticBuilder<'a> {
         self.enter_node(kind);
         param.bind(self);
 
-        let saved_checkpoint = self.unresolved_references_checkpoint;
-        self.unresolved_references_checkpoint = self.unresolved_references.checkpoint();
+        let saved_checkpoint = self.reference_checkpoint;
+        self.reference_checkpoint = self.reference_names.len();
 
         self.visit_span(&param.span);
         self.visit_binding_pattern(&param.pattern);
@@ -2396,7 +2397,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'a> {
             self.visit_ts_type_annotation(type_annotation);
         }
         self.resolve_references_for_current_scope();
-        self.unresolved_references_checkpoint = saved_checkpoint;
+        self.reference_checkpoint = saved_checkpoint;
         self.leave_node(kind);
     }
 
