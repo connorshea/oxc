@@ -76,53 +76,58 @@ declare_oxc_lint!(
 
 impl Rule for NoSideEffectsInComputedProperties {
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
-        match node.kind() {
-            AstKind::StaticMemberExpression(mem) => {
-                // Special case: `this.$set(...)` — report on the property name span and return.
-                // If `this.$set` is not called (e.g. assignment `this.$set = fn`), fall through
-                // to general mutation detection so it is caught there.
-                if mem.property.name == "$set" && is_this_object(&mem.object, ctx) {
-                    let mut parent = ctx.nodes().parent_node(node.id());
-                    // `(this.$set)(...)` — skip parenthesized wrappers between the member and the call
-                    while matches!(parent.kind(), AstKind::ParenthesizedExpression(_)) {
-                        parent = ctx.nodes().parent_node(parent.id());
-                    }
-                    if matches!(parent.kind(), AstKind::CallExpression(_)) {
-                        if let Some(ComputedContext::OptionsApi(key)) =
-                            find_computed_context(node, ctx)
-                        {
-                            let key = key.as_deref().unwrap_or("Unknown");
-                            ctx.diagnostic(unexpected_side_effect_in_property(
-                                mem.property.span,
-                                key,
-                            ));
-                        }
-                        return;
-                    }
-                }
+        let (object, static_mem) = match node.kind() {
+            AstKind::StaticMemberExpression(mem) => (&mem.object, Some(mem)),
+            AstKind::ComputedMemberExpression(mem) => (&mem.object, None),
+            _ => return,
+        };
 
-                // Special case: `Vue.set(...)`
-                if mem.property.name == "set"
-                    && matches!(&mem.object, Expression::Identifier(ident) if ident.name == "Vue")
-                {
-                    let parent = ctx.nodes().parent_node(node.id());
-                    if matches!(parent.kind(), AstKind::CallExpression(_))
-                        && let Some(ComputedContext::OptionsApi(key)) =
-                            find_computed_context(node, ctx)
+        // Every check below needs the member's object to be `this` or an identifier (a `this`
+        // alias, a setup variable, or `Vue`), so reject everything else — most notably the
+        // inner links of a member chain like `a.b.c` — before doing any further work.
+        if !matches!(
+            object.get_inner_expression(),
+            Expression::ThisExpression(_) | Expression::Identifier(_)
+        ) {
+            return;
+        }
+
+        if let Some(mem) = static_mem {
+            // Special case: `this.$set(...)` — report on the property name span and return.
+            // If `this.$set` is not called (e.g. assignment `this.$set = fn`), fall through
+            // to general mutation detection so it is caught there.
+            if mem.property.name == "$set" && is_this_object(object, ctx) {
+                let mut parent = ctx.nodes().parent_node(node.id());
+                // `(this.$set)(...)` — skip parenthesized wrappers between the member and the call
+                while matches!(parent.kind(), AstKind::ParenthesizedExpression(_)) {
+                    parent = ctx.nodes().parent_node(parent.id());
+                }
+                if matches!(parent.kind(), AstKind::CallExpression(_)) {
+                    if let Some(ComputedContext::OptionsApi(key)) = find_computed_context(node, ctx)
                     {
                         let key = key.as_deref().unwrap_or("Unknown");
                         ctx.diagnostic(unexpected_side_effect_in_property(mem.property.span, key));
                     }
                     return;
                 }
+            }
 
-                check_mutation(node, &mem.object, ctx);
+            // Special case: `Vue.set(...)`
+            if mem.property.name == "set"
+                && matches!(object, Expression::Identifier(ident) if ident.name == "Vue")
+            {
+                let parent = ctx.nodes().parent_node(node.id());
+                if matches!(parent.kind(), AstKind::CallExpression(_))
+                    && let Some(ComputedContext::OptionsApi(key)) = find_computed_context(node, ctx)
+                {
+                    let key = key.as_deref().unwrap_or("Unknown");
+                    ctx.diagnostic(unexpected_side_effect_in_property(mem.property.span, key));
+                }
+                return;
             }
-            AstKind::ComputedMemberExpression(mem) => {
-                check_mutation(node, &mem.object, ctx);
-            }
-            _ => {}
         }
+
+        check_mutation(node, object, ctx);
     }
 }
 
@@ -136,68 +141,83 @@ impl Rule for NoSideEffectsInComputedProperties {
 ///   identifiers (including `this` aliases) are checked as setup variables with
 ///   the walk starting at the identifier — so `foo.reverse()` IS a mutation.
 fn check_mutation<'a>(node: &AstNode<'a>, object: &Expression<'a>, ctx: &LintContext<'a>) {
+    // Unlike the `$set` check, ESLint does not look through parentheses or TS wrappers here,
+    // so `(this).foo = 1` is not a mutation.
     if !matches!(object, Expression::ThisExpression(_) | Expression::Identifier(_)) {
         return;
     }
 
-    // The seeded walk finds a superset of the unseeded one — use it as a cheap gate
-    // before resolving the computed context.
-    let Some(mutation_span) = find_mutation_span(node, ctx, true) else { return };
+    // Finding the mutation first is the cheaper gate: it is a short walk up the member
+    // chain, whereas resolving the computed context walks out to the enclosing function
+    // and back down through the Vue options object.
+    let Some(mutation) = find_mutation(node, ctx) else { return };
 
     match find_computed_context(node, ctx) {
         Some(ComputedContext::OptionsApi(key)) => {
-            if !is_this_object(object, ctx) {
+            if mutation.is_first_level_call || !is_this_object(object, ctx) {
                 return;
             }
-            let Some(mutation_span) = find_mutation_span(node, ctx, false) else { return };
             let key = key.as_deref().unwrap_or("Unknown");
-            ctx.diagnostic(unexpected_side_effect_in_property(mutation_span, key));
+            ctx.diagnostic(unexpected_side_effect_in_property(mutation.span, key));
         }
         Some(ComputedContext::CompositionApi(getter_fn_span)) => {
             let Expression::Identifier(ident) = object else { return };
             if !is_setup_variable(ident, getter_fn_span, ctx) {
                 return;
             }
-            ctx.diagnostic(unexpected_side_effect_in_function(mutation_span));
+            ctx.diagnostic(unexpected_side_effect_in_function(mutation.span));
         }
         None => {}
     }
 }
 
-const MUTATING_METHODS: &[&str] =
-    &["push", "pop", "shift", "unshift", "reverse", "splice", "sort", "copyWithin", "fill"];
+/// Array methods that mutate the receiver in place.
+fn is_mutating_method(name: &str) -> bool {
+    matches!(
+        name,
+        "push"
+            | "pop"
+            | "shift"
+            | "unshift"
+            | "reverse"
+            | "splice"
+            | "sort"
+            | "copyWithin"
+            | "fill"
+    )
+}
+
+/// A mutation of the member chain rooted at the node the walk started from.
+struct Mutation {
+    /// Span of the outermost mutating expression.
+    span: Span,
+    /// Whether the mutation is a mutating method called directly on the start node, e.g.
+    /// `foo.reverse()` rather than `foo.bar.reverse()`.
+    ///
+    /// This is the only place ESLint's two `findMutating` call sites disagree: it starts
+    /// at the identifier for a Composition API computed function, where such a call is a
+    /// mutation, and at the member expression for an Options API computed property, where
+    /// `this.reverse()` is a call to a component method instead. Everything further up the
+    /// chain is identical, so one walk serves both and callers filter on this flag.
+    is_first_level_call: bool,
+}
 
 /// Starting from `start_node` (a member expression where object = this/ident),
 /// walk up through parent nodes and detect if the member chain is being mutated.
-/// Returns the span of the outermost mutation expression, or None if no mutation found.
-///
-/// `seed_start` controls where the walk conceptually begins, matching ESLint's
-/// two findMutating call sites: `true` starts at the identifier (Composition API),
-/// so the start node's own property counts as a chain step and a first-level
-/// mutating call like `foo.reverse()` is detected; `false` starts at the member
-/// expression itself (Options API), so `this.reverse()` is not a mutation.
-fn find_mutation_span(
-    start_node: &AstNode<'_>,
-    ctx: &LintContext<'_>,
-    seed_start: bool,
-) -> Option<Span> {
+/// Returns the outermost mutation, or None if no mutation found.
+fn find_mutation<'a>(start_node: &AstNode<'a>, ctx: &LintContext<'a>) -> Option<Mutation> {
     let nodes = ctx.nodes();
     let mut current = start_node;
-    let mut last_static_name: Option<String> = if seed_start {
-        match start_node.kind() {
-            AstKind::StaticMemberExpression(m) => Some(m.property.name.to_string()),
-            AstKind::ComputedMemberExpression(m) => m.static_property_name().map(|s| s.to_string()),
-            _ => None,
-        }
-    } else {
-        None
-    };
+    let mut last_static_name = member_property_name(start_node.kind());
+    // Whether the walk has moved past `start_node`'s own property.
+    let mut stepped = false;
 
     loop {
         let parent = nodes.parent_node(current.id());
         match parent.kind() {
             AstKind::StaticMemberExpression(mem) if mem.object.span() == current.span() => {
-                last_static_name = Some(mem.property.name.to_string());
+                last_static_name = Some(mem.property.name.as_str());
+                stepped = true;
                 current = parent;
             }
 
@@ -205,7 +225,8 @@ fn find_mutation_span(
             // Resolve string-literal keys (e.g. `this.arr['push']`) so mutating methods are
             // detected; dynamic keys (variables) remain None and correctly produce no match.
             AstKind::ComputedMemberExpression(mem) if mem.object.span() == current.span() => {
-                last_static_name = mem.static_property_name().map(|s| s.to_string());
+                last_static_name = mem.static_property_name().map(|name| name.as_str());
+                stepped = true;
                 current = parent;
             }
 
@@ -216,12 +237,12 @@ fn find_mutation_span(
 
             // Assignment: `this.xxx = val` or `this.arr[i] = val`
             AstKind::AssignmentExpression(assign) if assign.left.span() == current.span() => {
-                return Some(assign.span());
+                return Some(Mutation { span: assign.span(), is_first_level_call: false });
             }
 
             // Update: `this.xxx++` / `++this.xxx`
             AstKind::UpdateExpression(upd) => {
-                return Some(upd.span());
+                return Some(Mutation { span: upd.span(), is_first_level_call: false });
             }
 
             // Delete: `delete this.xxx`
@@ -229,26 +250,37 @@ fn find_mutation_span(
                 if unary.operator == UnaryOperator::Delete
                     && unary.argument.span() == current.span() =>
             {
-                return Some(unary.span());
+                return Some(Mutation { span: unary.span(), is_first_level_call: false });
             }
 
             // Call expression — check if we are the callee
             AstKind::CallExpression(call) if call.callee.span() == current.span() => {
-                if last_static_name.as_deref().is_some_and(|name| MUTATING_METHODS.contains(&name))
-                {
-                    return Some(call.span());
+                if last_static_name.is_some_and(is_mutating_method) {
+                    return Some(Mutation { span: call.span(), is_first_level_call: !stepped });
                 }
                 return None;
             }
 
             // Call expression — check Object.assign(thisNode, ...)
             AstKind::CallExpression(call) if is_object_assign_first_arg(call, current.span()) => {
-                return Some(call.span());
+                return Some(Mutation { span: call.span(), is_first_level_call: false });
             }
 
             // Anything else: not a mutation
             _ => return None,
         }
+    }
+}
+
+/// The statically known property name of a member expression, borrowed from the AST so the
+/// walk above never has to allocate.
+fn member_property_name(kind: AstKind<'_>) -> Option<&str> {
+    match kind {
+        AstKind::StaticMemberExpression(mem) => Some(mem.property.name.as_str()),
+        AstKind::ComputedMemberExpression(mem) => {
+            mem.static_property_name().map(|name| name.as_str())
+        }
+        _ => None,
     }
 }
 
